@@ -6,6 +6,16 @@
 namespace small_gicp_relocalization
 {
 
+// 构造函数：节点初始化并设置参数
+/*
+params:
+  num_threads:                              用于并行处理的线程数
+  num_neighbors:                            估计协方差时的邻域点数
+  globol_leaf_size && registered_leaf_size: 用于下采样的像素网格大小
+  max_dist_sq:                              最大距离平方，用于配准时的排除条件
+  map_frame_id && odom_frame_id:            全局地图坐标系和里程计坐标系的标识
+  prior_pcd_file:                           指向先验点云地图的路径，用于加载全局地图
+*/
 SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptions & options)
 : Node("small_gicp_relocalization", options)
 {
@@ -61,6 +71,8 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
     std::bind(&SmallGicpRelocalizationNode::publishTransform, this));
 }
 
+// loadGlobaoMap函数用于加载全局地图
+// 它从PCD文件加载点云数据，将其存储在global_map_中，并通过控制台输出确认加载的点数
 void SmallGicpRelocalizationNode::loadGlobalMap(const std::string & file_name)
 {
   if (pcl::io::loadPCDFile<pcl::PointXYZ>(file_name, *global_map_) == -1) {
@@ -69,7 +81,7 @@ void SmallGicpRelocalizationNode::loadGlobalMap(const std::string & file_name)
   }
   RCLCPP_INFO(this->get_logger(), "Loaded global map with %zu points", global_map_->points.size());
 }
-
+ 
 void SmallGicpRelocalizationNode::registeredPcdCallback(
   const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
@@ -90,6 +102,11 @@ void SmallGicpRelocalizationNode::registeredPcdCallback(
     source_, small_gicp::KdTreeBuilderOMP(num_threads_));
 }
 
+
+// performRegistration()函数用配准器将源点云与目标点云进行配准。步骤包括：
+// ·配置线程数和排除距离。
+// ·调用align函数对源点云和目标点云进行对齐配准，返回一个包含转换结果的result。
+// ·若配准未收敛，会输出警告信息；若收敛，则保存转换矩阵result_T_。
 void SmallGicpRelocalizationNode::performRegistration()
 {
   if (!source_ || !source_tree_) {
@@ -110,6 +127,11 @@ void SmallGicpRelocalizationNode::performRegistration()
   result_T_ = result.T_target_source.matrix().cast<float>();
 }
 
+
+// publishTransform()函数将配准计算的转换结果发布为TF变换。步骤包括：
+// ·设置transform_stamped消息的时间戳、坐标系。
+// ·从转换矩阵result_T_中提取平移和旋转信息，并填入到transform_stamped中。
+// ·使用tf_broadcaster_发布转换，以供其他节点使用。
 void SmallGicpRelocalizationNode::publishTransform()
 {
   if (result_T_.isZero()) {
